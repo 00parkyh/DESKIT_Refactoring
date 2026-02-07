@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # DESKIT
 
 데스크 셋업/액세서리 기반 라이브 커머스 플랫폼. 상품 카탈로그, 라이브/VOD 구매, 채팅, 셀러/관리자 도구, AI 기반 상담 및 추천 기능을 포함합니다.
@@ -80,3 +81,6 @@ npm run preview
 ## 참고
 - 기본 주소: 백엔드 `http://localhost:8080`, 프론트엔드 `http://localhost:5173`.
 - RAG 시드 파일은 `src/main/resources/rag/seed`에 있습니다.
+=======
+# DESKIT_Refactoring
+>>>>>>> 6f221d35ffbfe61f25ed3185f59de63b5836ff7e
