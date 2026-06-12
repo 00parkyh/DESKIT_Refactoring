@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import java.util.List;
 
 @Log4j2
-@RestController
+//@RestController
 @RequiredArgsConstructor
 public class AdminChatController {
 

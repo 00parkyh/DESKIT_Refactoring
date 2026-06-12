@@ -7,20 +7,15 @@ import com.deskit.deskit.ai.evaluate.entity.AiEvaluation;
 import com.deskit.deskit.ai.evaluate.repository.AiEvalRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.openai.client.OpenAIClient;
-import com.openai.errors.OpenAIException;
-import com.openai.models.responses.EasyInputMessage;
-import com.openai.models.responses.Response;
-import com.openai.models.responses.ResponseCreateParams;
-import com.openai.models.responses.ResponseInputItem;
-import com.openai.models.responses.ResponseOutputItem;
-import com.openai.models.responses.ResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.redis.RedisVectorStore;
@@ -29,7 +24,6 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -38,11 +32,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SellerPlanEvaluationService {
 
-    @Value("${spring.ai.openai.chat.options.model}")
+    @Value("${spring.ai.google.genai.chat.options.model}")
     private String chatModel;
 
     private final RedisVectorStore vectorStore;
-    private final OpenAIClient openAIClient;
+    private final ChatModel chatModelClient;
     private final RagVectorProperties ragVectorProperties;
     private final AiTools chatTools;
     private final AiEvalRepository aiEvalRepository;
@@ -66,7 +60,7 @@ public class SellerPlanEvaluationService {
 
                 점수는 0~20 범위로 작성하고, total_score는 항목 합계로 작성하세요.
                 gradeRecommended는 SellerGrade 열거형 값 중 하나로 지정하세요.
-                
+
                 요약에는 단순히 결과를 요약만 하지 말고, 판매자에게 해당 점수를 부여한 이유를 알려주세요.
 
                 반드시 getEvaluateResultTool 함수를 호출해서 결과를 반환하세요.
@@ -158,14 +152,13 @@ public class SellerPlanEvaluationService {
     private EvaluateDTO requestEvaluation(SystemMessage systemMessage, UserMessage userMessage) {
         String answer;
         try {
-            ResponseCreateParams params = ResponseCreateParams.builder()
+            Prompt prompt = new Prompt(List.of(systemMessage, userMessage), GoogleGenAiChatOptions.builder()
                     .model(chatModel)
-                    .inputOfResponse(buildResponseInput(List.of(systemMessage, userMessage)))
                     .temperature(0.2)
-                    .build();
-            Response response = openAIClient.responses().create(params);
-            answer = extractOutputText(response);
-        } catch (OpenAIException e) {
+                    .responseMimeType("application/json")
+                    .build());
+            answer = chatModelClient.call(prompt).getResult().getOutput().getText();
+        } catch (RuntimeException e) {
             throw new IllegalStateException("ai evaluation failed", e);
         }
 
@@ -198,55 +191,6 @@ public class SellerPlanEvaluationService {
         } catch (IOException | IllegalArgumentException ex) {
             throw new IllegalStateException("invalid evaluation payload", ex);
         }
-    }
-
-    private List<ResponseInputItem> buildResponseInput(List<org.springframework.ai.chat.messages.Message> messages) {
-        List<ResponseInputItem> inputItems = new ArrayList<>();
-        for (org.springframework.ai.chat.messages.Message message : messages) {
-            EasyInputMessage easyMessage = EasyInputMessage.builder()
-                    .role(toEasyInputRole(message))
-                    .content(getMessageText(message))
-                    .build();
-            inputItems.add(ResponseInputItem.ofEasyInputMessage(easyMessage));
-        }
-        return inputItems;
-    }
-
-    private EasyInputMessage.Role toEasyInputRole(org.springframework.ai.chat.messages.Message message) {
-        return switch (message.getMessageType()) {
-            case SYSTEM -> EasyInputMessage.Role.SYSTEM;
-            case USER -> EasyInputMessage.Role.USER;
-            case ASSISTANT -> EasyInputMessage.Role.ASSISTANT;
-            case TOOL -> EasyInputMessage.Role.SYSTEM;
-        };
-    }
-
-    private String getMessageText(org.springframework.ai.chat.messages.Message message) {
-        if (message instanceof SystemMessage systemMessage) {
-            return systemMessage.getText();
-        }
-        if (message instanceof UserMessage userMessage) {
-            return userMessage.getText();
-        }
-        return "";
-    }
-
-    private String extractOutputText(Response response) {
-        if (response == null || response.output() == null) {
-            return "";
-        }
-        StringBuilder text = new StringBuilder();
-        for (ResponseOutputItem item : response.output()) {
-            if (!item.isMessage()) {
-                continue;
-            }
-            for (ResponseOutputMessage.Content content : item.asMessage().content()) {
-                if (content.isOutputText()) {
-                    text.append(content.asOutputText().text());
-                }
-            }
-        }
-        return text.toString();
     }
 
     private String normalizeJson(String answer) {

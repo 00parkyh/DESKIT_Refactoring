@@ -10,7 +10,7 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 
 @Log4j2
-@Component
+//@Component
 @RequiredArgsConstructor
 public class RagSeedIngestor implements ApplicationRunner {
 

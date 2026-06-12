@@ -35,6 +35,9 @@ public class AwsS3Service {
     @Value("${cloud.aws.s3.endpoint}")
     private String endpoint;
 
+    @Value("${cloud.aws.s3.public-endpoint}")
+    private String publicEndpoint;
+
     private static final List<String> ALLOWED_EXTENSIONS = Arrays.asList("jpg", "jpeg", "png");
 
     public ImageUploadResponse uploadFile(Long sellerId, MultipartFile file, UploadType type) {
@@ -68,7 +71,7 @@ public class AwsS3Service {
             return ImageUploadResponse.builder()
                     .originalFileName(originalFileName)
                     .storedFileName(storedFileName)
-                    .fileUrl(amazonS3.getUrl(bucket, storedFileName).toString())
+                    .fileUrl(buildPublicUrl(storedFileName))
                     .fileSize(file.getSize())
                     .build();
 
@@ -83,8 +86,8 @@ public class AwsS3Service {
             return null;
         }
         String trimmedKey = key.startsWith("/") ? key.substring(1) : key;
-        if (endpoint != null && !endpoint.isBlank()) {
-            String base = endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint;
+        if (publicEndpoint != null && !publicEndpoint.isBlank()) {
+            String base = publicEndpoint.endsWith("/") ? publicEndpoint.substring(0, publicEndpoint.length() - 1) : publicEndpoint;
             return base + "/" + bucket + "/" + trimmedKey;
         }
         return amazonS3.getUrl(bucket, trimmedKey).toString();
@@ -116,8 +119,7 @@ public class AwsS3Service {
             amazonS3.putObject(new PutObjectRequest(bucket, pathKey, inputStream, metadata)
                     .withCannedAcl(CannedAccessControlList.PublicRead));
 
-            return endpoint != null ? endpoint + "/" + bucket + "/" + pathKey
-                    : amazonS3.getUrl(bucket, pathKey).toString();
+            return buildPublicUrl(pathKey);
         } catch (Exception e) {
             log.error("S3 Stream Upload Failed: {}", e.getMessage());
             throw new RuntimeException("VOD 업로드 실패");

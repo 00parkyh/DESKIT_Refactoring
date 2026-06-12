@@ -5,9 +5,9 @@ import org.springframework.ai.vectorstore.redis.RedisVectorStore;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import redis.clients.jedis.DefaultJedisClientConfig;
+import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.JedisPooled;
-
-import java.net.URI;
 
 @Configuration
 @EnableConfigurationProperties(RagVectorProperties.class)
@@ -17,13 +17,12 @@ public class RedisVectorStoreConfig {
     public JedisPooled jedisPooled(RagVectorProperties properties) {
 
         if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
-            String uri = String.format(
-                    "redis://:%s@%s:%d",
-                    properties.getPassword(),
-                    properties.getHost(),
-                    properties.getPort()
+            return new JedisPooled(
+                    new HostAndPort(properties.getHost(), properties.getPort()),
+                    DefaultJedisClientConfig.builder()
+                            .password(properties.getPassword())
+                            .build()
             );
-            return new JedisPooled(URI.create(uri));
         }
 
         return new JedisPooled(

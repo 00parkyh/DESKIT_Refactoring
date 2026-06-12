@@ -13,6 +13,7 @@ import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.account.repository.CompanyRegisteredRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,9 @@ public class InvitationService {
     private final CompanyRegisteredRepository companyRegisteredRepository;
     private final InviteEmailService inviteEmailService;
     private final InvitationQueryService invitationQueryService;
+
+    @Value("${deskit.web.base-url:http://127.0.0.1}")
+    private String webBaseUrl;
 
     @Transactional
     public ResponseEntity<?> inviteSeller(CustomOAuth2User user, Map<String, String> payload) {
@@ -99,7 +103,7 @@ public class InvitationService {
 
         invitationRepository.save(invitation);
 
-        String inviteUrl = "https://ssg.deskit.o-r.kr/signup?invite=" +
+        String inviteUrl = buildWebUrl("/signup?invite=") +
                 URLEncoder.encode(token, StandardCharsets.UTF_8);
 
         String recipientName = extractNameFromEmail(email);
@@ -193,5 +197,9 @@ public class InvitationService {
             return email;
         }
         return email.substring(0, atIndex);
+    }
+
+    private String buildWebUrl(String path) {
+        return webBaseUrl.replaceAll("/+$", "") + path;
     }
 }

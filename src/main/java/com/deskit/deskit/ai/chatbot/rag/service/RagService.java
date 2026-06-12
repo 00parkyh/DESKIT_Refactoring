@@ -2,26 +2,20 @@ package com.deskit.deskit.ai.chatbot.rag.service;
 
 import com.deskit.deskit.ai.config.RagVectorProperties;
 import com.deskit.deskit.ai.chatbot.openai.entity.ChatInfo;
-import com.deskit.deskit.ai.chatbot.openai.service.OpenAIService;
 import com.deskit.deskit.ai.chatbot.openai.service.ConversationService;
+import com.deskit.deskit.ai.chatbot.openai.service.OpenAIService;
 import com.deskit.deskit.ai.chatbot.rag.dto.ChatResponse;
-import com.openai.client.OpenAIClient;
-import com.openai.errors.OpenAIException;
-import com.openai.models.responses.EasyInputMessage;
-import com.openai.models.responses.Response;
-import com.openai.models.responses.ResponseCreateParams;
-import com.openai.models.responses.ResponseInputItem;
-import com.openai.models.responses.ResponseOutputItem;
-import com.openai.models.responses.ResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.redis.RedisVectorStore;
 import org.springframework.stereotype.Service;
@@ -36,7 +30,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RagService {
 
-    @Value("${spring.ai.openai.chat.options.model}")
+    @Value("${spring.ai.google.genai.chat.options.model}")
     private String chatModel;
     private static final double TEMPERATURE = 0.7;
     private static final String NO_CONTEXT_MESSAGE =
@@ -48,7 +42,7 @@ public class RagService {
     private final ConversationService conversationService;
     private final ChatSaveService chatSaveService;
     private final ChatMemoryRepository chatMemoryRepository;
-    private final OpenAIClient openAIClient;
+    private final ChatModel chatModelClient;
     private final OpenAIService openAIService;
 
     private static final String ESCALATION_TRIGGER = "관리자 연결";
@@ -93,15 +87,13 @@ public class RagService {
 
         String answer;
         try {
-            ResponseCreateParams params = ResponseCreateParams.builder()
+            Prompt prompt = new Prompt(messages, GoogleGenAiChatOptions.builder()
                     .model(chatModel)
-                    .inputOfResponse(buildResponseInput(messages))
                     .temperature(TEMPERATURE)
-                    .build();
-            Response response = openAIClient.responses().create(params);
-            answer = extractOutputText(response);
-        } catch (OpenAIException e) {
-            log.error("RAG OpenAI error", e);
+                    .build());
+            answer = chatModelClient.call(prompt).getResult().getOutput().getText();
+        } catch (RuntimeException e) {
+            log.error("RAG Gemini error", e);
             return new ChatResponse(
                     "현재 상담 시스템에 문제가 발생했습니다. 잠시 후 다시 시도해주세요.",
                     List.of(),
@@ -163,61 +155,9 @@ public class RagService {
         return question == null ? null : question.trim();
     }
 
-    private List<ResponseInputItem> buildResponseInput(List<Message> messages) {
-        List<ResponseInputItem> inputItems = new ArrayList<>();
-        for (Message message : messages) {
-            EasyInputMessage easyMessage = EasyInputMessage.builder()
-                    .role(toEasyInputRole(message))
-                    .content(getMessageText(message))
-                    .build();
-            inputItems.add(ResponseInputItem.ofEasyInputMessage(easyMessage));
-        }
-        return inputItems;
-    }
-
-    private EasyInputMessage.Role toEasyInputRole(Message message) {
-        return switch (message.getMessageType()) {
-            case SYSTEM -> EasyInputMessage.Role.SYSTEM;
-            case USER -> EasyInputMessage.Role.USER;
-            case ASSISTANT -> EasyInputMessage.Role.ASSISTANT;
-            case TOOL -> EasyInputMessage.Role.SYSTEM;
-        };
-    }
-
-    private String getMessageText(Message message) {
-        if (message instanceof SystemMessage systemMessage) {
-            return systemMessage.getText();
-        }
-        if (message instanceof UserMessage userMessage) {
-            return userMessage.getText();
-        }
-        if (message instanceof AssistantMessage assistantMessage) {
-            return assistantMessage.getText();
-        }
-        return "";
-    }
-
-    private String extractOutputText(Response response) {
-        if (response == null || response.output() == null) {
-            return "";
-        }
-        StringBuilder text = new StringBuilder();
-        for (ResponseOutputItem item : response.output()) {
-            if (!item.isMessage()) {
-                continue;
-            }
-            for (ResponseOutputMessage.Content content : item.asMessage().content()) {
-                if (content.isOutputText()) {
-                    text.append(content.asOutputText().text());
-                }
-            }
-        }
-        return text.toString();
-    }
-
     public void ingest(List<Document> documents) {
         vectorStore.add(documents);
-        log.info("vectorStore added: " + documents);
+        log.info("vectorStore added: {}", documents);
     }
 
     public Document createDocument(String content, Map<String, Object> metadata) {

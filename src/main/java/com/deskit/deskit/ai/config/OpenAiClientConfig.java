@@ -1,22 +1,23 @@
-package com.deskit.deskit.ai.config;
-
-import com.openai.client.OpenAIClient;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import com.openai.client.okhttp.OpenAIOkHttpClient;
-
-
-@Configuration
-public class OpenAiClientConfig {
-
-    @Value("${spring.ai.openai.api-key}")
-    private String apiKey;
-
-    @Bean
-    public OpenAIClient openAIClient() {
-        return OpenAIOkHttpClient.builder()
-                .apiKey(apiKey)
-                .build();
-    }
-}
+//package com.deskit.deskit.ai.config;
+//
+//import com.openai.client.OpenAIClient;
+//import org.springframework.beans.factory.annotation.Value;
+//import org.springframework.context.annotation.Bean;
+//import org.springframework.context.annotation.Configuration;
+//import com.openai.client.okhttp.OpenAIOkHttpClient;
+//
+//
+//@Configuration
+//public class OpenAiClientConfig {
+//
+//    @Value("${spring.ai.openai.api-key}")
+//    private String apiKey;
+//
+//    @Bean
+//    public OpenAIClient openAIClient() {
+//        return OpenAIOkHttpClient.builder()
+//                .apiKey(apiKey)
+//                .build();
+//    }
+//}
+//이 코드는 spring ai 가 지원해주기 때문에 작성하지 않아도 된다.

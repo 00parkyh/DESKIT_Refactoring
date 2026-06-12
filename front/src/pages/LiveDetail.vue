@@ -24,10 +24,11 @@ import {
   leaveBroadcast,
   reportBroadcast,
   toggleBroadcastLike,
+  type BroadcastDetailResponse,
   type BroadcastProductItem,
 } from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
-import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
+import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -42,7 +43,11 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const joinInFlight = ref(false)
+const subscriberConnectInFlight = ref(false)
 const streamToken = ref<string | null>(null)
+let subscriberConnectPromise: Promise<boolean> | null = null
+let subscriberConnectingToken: string | null = null
+let subscriberConnectedToken: string | null = null
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const leaveRequested = ref(false)
@@ -213,11 +218,39 @@ const buildLiveItem = (detail: {
   }
 }
 
+const resolveDetailStatus = (detail: BroadcastDetailResponse) => {
+  const normalized = normalizeBroadcastStatus(detail.status)
+  if (detail.startedAt && ['READY', 'RESERVED'].includes(normalized)) {
+    return 'ON_AIR'
+  }
+  return normalized
+}
+
+const resolveViewerStreamStatus = (detail: BroadcastDetailResponse): BroadcastStatus => {
+  const resolved = resolveDetailStatus(detail)
+  if (
+    ['READY', 'RESERVED'].includes(resolved) &&
+    (
+      joinInFlight.value ||
+      subscriberConnectInFlight.value ||
+      Boolean(streamToken.value) ||
+      Boolean(joinedBroadcastId.value) ||
+      openviduConnected.value
+    )
+  ) {
+    return 'ON_AIR'
+  }
+  return resolved
+}
+
 const loadDetail = async () => {
   if (!broadcastId.value) return
   try {
     const detail = await fetchPublicBroadcastDetail(broadcastId.value)
-    liveItem.value = buildLiveItem(detail)
+    liveItem.value = buildLiveItem({
+      ...detail,
+      status: resolveViewerStreamStatus(detail),
+    })
     likeCount.value = detail.totalLikes ?? 0
     if (isLoggedIn.value) {
       await loadLikeStatus()
@@ -349,6 +382,7 @@ const isSettingsOpen = ref(false)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
 const volume = ref(60)
+const viewerPlaybackActivated = ref(false)
 const selectedQuality = ref<'auto' | '1080p' | '720p' | '480p'>('auto')
 const qualityObserver = ref<MutationObserver | null>(null)
 
@@ -366,13 +400,24 @@ const qualityOptions: QualityOption[] = [
   { value: '480p', label: '480p', width: 854, height: 480 },
 ]
 
-const applySubscriberVolume = () => {
+const syncSubscriberPlayback = async () => {
   const container = stageRef.value
   if (!container) return
   const video = container.querySelector('video') as HTMLVideoElement | null
   if (!video) return
-  video.muted = false
+  video.autoplay = true
+  video.playsInline = true
+  const shouldMute = !viewerPlaybackActivated.value || volume.value <= 0
+  video.defaultMuted = shouldMute
+  video.muted = shouldMute
   video.volume = Math.min(1, Math.max(0, volume.value / 100))
+  if (video.paused) {
+    await video.play().catch(() => {})
+  }
+}
+
+const applySubscriberVolume = () => {
+  void syncSubscriberPlayback()
 }
 
 const applyVideoQuality = async (value: typeof selectedQuality.value) => {
@@ -418,12 +463,21 @@ const clearViewerContainer = () => {
   }
 }
 
+const waitForViewerContainer = async () => {
+  if (viewerContainerRef.value) return viewerContainerRef.value
+  await nextTick()
+  if (viewerContainerRef.value) return viewerContainerRef.value
+  await new Promise((resolve) => window.setTimeout(resolve, 50))
+  return viewerContainerRef.value
+}
+
 const resetOpenViduState = () => {
   openviduConnected.value = false
   openviduSubscriber.value = null
   openviduSession.value = null
   openviduInstance.value = null
   openviduConnectionId.value = null
+  subscriberConnectedToken = null
   clearViewerContainer()
 }
 
@@ -441,46 +495,73 @@ const disconnectOpenVidu = () => {
   resetOpenViduState()
 }
 
+const invalidateJoinToken = (token?: string | null) => {
+  if (token && streamToken.value && streamToken.value !== token) {
+    return
+  }
+  streamToken.value = null
+  joinedBroadcastId.value = null
+}
+
 const connectSubscriber = async (token: string) => {
-  if (!viewerContainerRef.value) return
-  try {
-    disconnectOpenVidu()
-    openviduInstance.value = new OpenVidu()
-    openviduSession.value = openviduInstance.value.initSession()
-    openviduSession.value.on('streamCreated', (event) => {
-      if (!viewerContainerRef.value || !openviduSession.value) return
-      if (openviduSubscriber.value) {
-        openviduSession.value.unsubscribe(openviduSubscriber.value as Subscriber)
+  if (openviduConnected.value && subscriberConnectedToken === token) return true
+  if (subscriberConnectPromise && subscriberConnectingToken === token) {
+    return await subscriberConnectPromise
+  }
+  subscriberConnectingToken = token
+  subscriberConnectInFlight.value = true
+  subscriberConnectPromise = (async () => {
+    const container = await waitForViewerContainer()
+    if (!container) return false
+    try {
+      disconnectOpenVidu()
+      openviduInstance.value = new OpenVidu()
+      openviduSession.value = openviduInstance.value.initSession()
+      openviduSession.value.on('streamCreated', (event) => {
+        if (!viewerContainerRef.value || !openviduSession.value) return
+        if (openviduSubscriber.value) {
+          openviduSession.value.unsubscribe(openviduSubscriber.value as Subscriber)
+          openviduSubscriber.value = null
+          clearViewerContainer()
+        }
+        openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+          insertMode: 'append',
+        })
+        applySubscriberVolume()
+        void applyVideoQuality(selectedQuality.value)
+      })
+      openviduSession.value.on('streamDestroyed', (event: StreamEvent) => {
+        event.preventDefault()
         openviduSubscriber.value = null
         clearViewerContainer()
-      }
-      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
-        insertMode: 'append',
       })
-      applySubscriberVolume()
-      void applyVideoQuality(selectedQuality.value)
-    })
-    openviduSession.value.on('streamDestroyed', (event: StreamEvent) => {
-      event.preventDefault()
-      openviduSubscriber.value = null
-      clearViewerContainer()
-    })
-    openviduSession.value.on('sessionDisconnected', (event) => {
-      if (event.reason === 'forceDisconnectByServer') {
-        notifyViewerSanction('OUT')
-      }
-    })
-    await openviduSession.value.connect(token)
-    openviduConnectionId.value = openviduSession.value.connection?.connectionId ?? null
-    openviduConnected.value = true
-  } catch {
-    disconnectOpenVidu()
-  }
+      openviduSession.value.on('sessionDisconnected', (event) => {
+        if (event.reason === 'forceDisconnectByServer') {
+          notifyViewerSanction('OUT')
+        }
+      })
+      await openviduSession.value.connect(token)
+      openviduConnectionId.value = openviduSession.value.connection?.connectionId ?? null
+      openviduConnected.value = true
+      subscriberConnectedToken = token
+      return true
+    } catch {
+      disconnectOpenVidu()
+      invalidateJoinToken(token)
+      return false
+    } finally {
+      subscriberConnectInFlight.value = false
+      subscriberConnectingToken = null
+      subscriberConnectPromise = null
+    }
+  })()
+  return await subscriberConnectPromise
 }
 
 const ensureSubscriberConnected = async () => {
   if (!streamToken.value || lifecycleStatus.value !== 'ON_AIR') return
-  if (openviduConnected.value) return
+  if (openviduConnected.value && subscriberConnectedToken === streamToken.value) return
+  if (subscriberConnectInFlight.value) return
   await connectSubscriber(streamToken.value)
 }
 
@@ -503,6 +584,14 @@ const toggleFullscreen = async () => {
   } catch {
     return
   }
+}
+
+const handleViewerPlaybackActivation = () => {
+  if (viewerPlaybackActivated.value) {
+    return
+  }
+  viewerPlaybackActivated.value = true
+  void syncSubscriberPlayback()
 }
 
 const toggleSettings = () => {
@@ -898,7 +987,7 @@ const requestJoinToken = async () => {
   if (!broadcastId.value) return
   if (lifecycleStatus.value !== 'ON_AIR') return
   if (joinInFlight.value) return
-  if (joinedBroadcastId.value === broadcastId.value) return
+  if (joinedBroadcastId.value === broadcastId.value && streamToken.value) return
   joinInFlight.value = true
   try {
     streamToken.value = await joinBroadcast(broadcastId.value, viewerId.value)
@@ -1348,8 +1437,18 @@ watch(
 
 watch(streamToken, () => {
   if (lifecycleStatus.value === 'ON_AIR') {
+    if (!streamToken.value) {
+      void requestJoinToken()
+      return
+    }
     void ensureSubscriberConnected()
   }
+})
+
+watch([lifecycleStatus, streamToken, viewerContainerRef], ([status, token, container]) => {
+  if (status !== 'ON_AIR') return
+  if (!token || !container) return
+  void ensureSubscriberConnected()
 })
 
 watch(
@@ -1454,7 +1553,12 @@ onBeforeUnmount(() => {
             <p v-if="liveItem.description" class="player-desc">{{ liveItem.description }}</p>
           </div>
 
-          <div ref="stageRef" class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
+          <div
+            ref="stageRef"
+            class="player-frame"
+            :class="{ 'player-frame--fullscreen': isFullscreen }"
+            @click="handleViewerPlaybackActivation"
+          >
             <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
             <div v-if="['READY', 'ENDED', 'STOPPED'].includes(lifecycleStatus)" class="player-frame__placeholder">
               <img

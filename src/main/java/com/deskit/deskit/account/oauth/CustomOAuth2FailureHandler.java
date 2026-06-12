@@ -4,6 +4,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -16,6 +17,9 @@ import java.nio.charset.StandardCharsets;
 @Log4j2
 @Component
 public class CustomOAuth2FailureHandler extends SimpleUrlAuthenticationFailureHandler {
+
+	@Value("${deskit.web.base-url:http://127.0.0.1}")
+	private String webBaseUrl;
 
 	@Override
 	public void onAuthenticationFailure(
@@ -30,7 +34,7 @@ public class CustomOAuth2FailureHandler extends SimpleUrlAuthenticationFailureHa
 		response.setContentType("text/html;charset=UTF-8");
 		response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 		response.getWriter().write(
-				"<script>alert('" + escapedMessage + "'); window.location.href='https://ssg.deskit.o-r.kr/login';</script>"
+				"<script>alert('" + escapedMessage + "'); window.location.href='" + buildWebUrl("/login") + "';</script>"
 		);
 	}
 
@@ -53,5 +57,9 @@ public class CustomOAuth2FailureHandler extends SimpleUrlAuthenticationFailureHa
 				.replace("'", "\\'")
 				.replace("\r", "")
 				.replace("\n", "");
+	}
+
+	private String buildWebUrl(String path) {
+		return webBaseUrl.replaceAll("/+$", "") + path;
 	}
 }

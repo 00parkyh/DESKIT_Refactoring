@@ -527,8 +527,8 @@ export const sanctionAdminViewer = async (
 }
 
 export const fetchRecentLiveChats = async (broadcastId: number, seconds = 60): Promise<LiveChatMessage[]> => {
-  const { data } = await http.get<ApiResult<LiveChatMessage[]>>(`${apiBase}/livechats/${broadcastId}/recent`, { params: { seconds } })
-  return ensureSuccess(data)
+  const { data } = await http.get<LiveChatMessage[]>(`${apiBase}/livechats/${broadcastId}/recent`, { params: { seconds } })
+  return data
 }
 
 export const fetchMediaConfig = async (broadcastId: number): Promise<MediaConfig> => {

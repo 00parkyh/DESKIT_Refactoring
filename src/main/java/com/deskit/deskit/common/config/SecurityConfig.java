@@ -10,6 +10,7 @@ import com.deskit.deskit.account.service.CustomOAuth2UserService;
 import com.deskit.deskit.admin.security.AdminSecondFactorFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -28,6 +29,7 @@ import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -43,6 +45,9 @@ public class SecurityConfig {
     private final CustomOAuth2FailureHandler customOAuth2FailureHandler;
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
+
+    @Value("${deskit.cors.allowed-origins:http://127.0.0.1}")
+    private String allowedOrigins;
 
     public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                           CustomSuccessHandler customSuccessHandler,
@@ -85,7 +90,7 @@ public class SecurityConfig {
 
                         CorsConfiguration configuration = new CorsConfiguration();
 
-                        configuration.setAllowedOrigins(Collections.singletonList("https://ssg.deskit.o-r.kr"));
+                        configuration.setAllowedOrigins(resolveAllowedOrigins());
                         configuration.setAllowedMethods(Collections.singletonList("*"));
                         configuration.setAllowCredentials(true);
                         configuration.setAllowedHeaders(Collections.singletonList("*"));
@@ -216,6 +221,13 @@ public class SecurityConfig {
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
 
         return http.build();
+    }
+
+    private java.util.List<String> resolveAllowedOrigins() {
+        return Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .toList();
     }
 
 }

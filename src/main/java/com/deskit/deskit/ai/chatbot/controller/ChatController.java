@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 @Log4j2
-@Controller
+//@Controller
 @RequestMapping({"/api", ""})
 @RequiredArgsConstructor
 public class ChatController {

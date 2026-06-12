@@ -33,7 +33,6 @@ public class KakaoResponse implements OAuth2Response {
     }
 
     // kakao 이름은 개인 개발자 앱으로는 닉네임(실명 아님)만 수집 가능
-
     @Override
     public String getName() {
         Map<String, Object> kakaoAccount =

@@ -918,8 +918,6 @@ ALTER TABLE chat_handoff
 ALTER TABLE chat_handoff
     ADD CONSTRAINT FK_handoff_admin
         FOREIGN KEY (assigned_admin_id) REFERENCES admin (admin_id);
-ALTER TABLE forbidden_word
-    ADD CONSTRAINT uq_forbidden_word UNIQUE (word);
 
 SET FOREIGN_KEY_CHECKS = 1;
 

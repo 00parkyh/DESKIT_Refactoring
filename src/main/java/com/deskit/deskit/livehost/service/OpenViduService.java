@@ -31,14 +31,34 @@ public class OpenViduService {
 
     private final Map<Long, String> sessionMap = new ConcurrentHashMap<>();
 
+    private String buildSessionId(Long broadcastId) {
+        return "broadcast-" + broadcastId;
+    }
+
+    private Session getActiveSessionSafely(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        try {
+            return openVidu.getActiveSession(sessionId);
+        } catch (Exception e) {
+            log.warn("OpenVidu active session lookup failed: sessionId={}, message={}", sessionId, e.getMessage());
+            return null;
+        }
+    }
+
     public String createSession(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
         String cachedSessionId = sessionMap.get(broadcastId);
         if (cachedSessionId != null) {
-            return cachedSessionId;
+            Session cachedSession = getActiveSessionSafely(cachedSessionId);
+            if (cachedSession != null) {
+                return cachedSessionId;
+            }
+            sessionMap.remove(broadcastId);
         }
 
-        String customSessionId = "broadcast-" + broadcastId;
-        Session existingSession = openVidu.getActiveSession(customSessionId);
+        String customSessionId = buildSessionId(broadcastId);
+        Session existingSession = getActiveSessionSafely(customSessionId);
         if (existingSession != null) {
             sessionMap.put(broadcastId, existingSession.getSessionId());
             log.info("OpenVidu 기존 세션 재사용: broadcastId={}, sessionId={}", broadcastId,
@@ -60,7 +80,7 @@ public class OpenViduService {
             sessionMap.put(broadcastId, session.getSessionId());
         } catch (OpenViduHttpException e) {
             if (e.getStatus() == 409) {
-                Session conflictSession = openVidu.getActiveSession(customSessionId);
+                Session conflictSession = getActiveSessionSafely(customSessionId);
                 if (conflictSession != null) {
                     sessionMap.put(broadcastId, conflictSession.getSessionId());
                     log.info("OpenVidu 세션 충돌 후 재사용: broadcastId={}, sessionId={}", broadcastId,
@@ -83,10 +103,15 @@ public class OpenViduService {
             sessionId = createSession(broadcastId);
         }
 
-        Session session = openVidu.getActiveSession(sessionId);
+        Session session = getActiveSessionSafely(sessionId);
         if (session == null) {
+            sessionMap.remove(broadcastId);
             sessionId = createSession(broadcastId);
-            session = openVidu.getActiveSession(sessionId);
+            session = getActiveSessionSafely(sessionId);
+        }
+
+        if (session == null) {
+            throw new IllegalStateException("OpenVidu session is not active: " + buildSessionId(broadcastId));
         }
 
         OpenViduRole role = OpenViduRole.SUBSCRIBER;
@@ -109,8 +134,27 @@ public class OpenViduService {
                 .data(params != null ? params.toString() : "")
                 .build();
 
-        Connection connection = session.createConnection(properties);
-        return connection.getToken();
+        try {
+            Connection connection = session.createConnection(properties);
+            return connection.getToken();
+        } catch (OpenViduHttpException e) {
+            if (e.getStatus() != 404) {
+                throw e;
+            }
+
+            log.warn("OpenVidu token creation got stale session. Recreating session: broadcastId={}, sessionId={}",
+                    broadcastId, sessionId);
+            sessionMap.remove(broadcastId);
+
+            String recreatedSessionId = createSession(broadcastId);
+            Session recreatedSession = getActiveSessionSafely(recreatedSessionId);
+            if (recreatedSession == null) {
+                throw e;
+            }
+
+            Connection recreatedConnection = recreatedSession.createConnection(properties);
+            return recreatedConnection.getToken();
+        }
     }
 
     public void startRecording(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
@@ -152,7 +196,7 @@ public class OpenViduService {
         String sessionId = sessionMap.remove(broadcastId);
         if (sessionId != null) {
             try {
-                Session session = openVidu.getActiveSession(sessionId);
+                Session session = getActiveSessionSafely(sessionId);
                 if (session != null) {
                     session.close();
                     log.info("OpenVidu 세션 종료: {}", sessionId);
@@ -189,7 +233,7 @@ public class OpenViduService {
         }
 
         try {
-            Session session = openVidu.getActiveSession(sessionId);
+            Session session = getActiveSessionSafely(sessionId);
             if (session != null) {
                 session.fetch();
                 boolean exists = session.getConnections().stream()

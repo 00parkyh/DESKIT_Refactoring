@@ -169,6 +169,9 @@ const PUBLISHER_READY_TIMEOUT_MS = 8000
 const PUBLISHER_READY_POLL_MS = 200
 const publisherToken = ref<string | null>(null)
 const publisherTokenInFlight = ref(false)
+const publisherConnectInFlight = ref(false)
+let publisherTokenPromise: Promise<string | null> | null = null
+let publisherConnectPromise: Promise<boolean> | null = null
 const openviduInstance = shallowRef<OpenVidu | null>(null)
 const openviduSession = shallowRef<Session | null>(null)
 const openviduPublisher = shallowRef<Publisher | null>(null)
@@ -364,8 +367,8 @@ const connectChat = () => {
 
   // [추가] 현재 프로토콜(http/https)에 따라 ws/wss 결정 및 주소 생성
   // const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  // const host = window.location.host // 예: ssg.deskit.o-r.kr
-  // const brokerURL = `wss://ssg.deskit.o-r.kr/ws`
+  // const host = window.location.host // example: 127.0.0.1
+  // const brokerURL = `ws://${host}/ws`
 
   // const client = new Client({
   //   webSocketFactory: () =>
@@ -596,6 +599,17 @@ const resolveDetailStatus = (detail: BroadcastDetailResponse) => {
   return normalized
 }
 
+const resolveSellerStreamStatus = (detail: BroadcastDetailResponse): BroadcastStatus => {
+  const resolved = resolveDetailStatus(detail)
+  if (
+    ['READY', 'RESERVED'].includes(resolved) &&
+    (startRequested.value || publisherToken.value || publisherTokenInFlight.value || openviduConnected.value)
+  ) {
+    return 'ON_AIR'
+  }
+  return resolved
+}
+
 const resolveMediaSelection = (value: string, fallback: string) => {
   const trimmed = value?.trim()
   if (!trimmed || trimmed === 'default') return fallback
@@ -702,7 +716,6 @@ const waitForPublisherTracks = async (publisher: Publisher) => {
 
 const resetOpenViduState = () => {
   openviduConnected.value = false
-  publisherToken.value = null
   openviduPublisher.value = null
   openviduSession.value = null
   openviduInstance.value = null
@@ -789,61 +802,79 @@ const restartPublisher = async () => {
 
 const connectPublisher = async (broadcastId: number, token: string) => {
   if (openviduConnected.value) return true
-  const container = await waitForPublisherContainer()
-  if (!container) {
-    scheduleStartRetry(broadcastId, '방송 화면 준비 중입니다. 잠시 후 다시 시도합니다.')
-    return false
+  if (publisherConnectPromise) {
+    return await publisherConnectPromise
   }
-  try {
-    disconnectOpenVidu()
-    openviduInstance.value = new OpenVidu()
-    openviduSession.value = openviduInstance.value.initSession()
-    await openviduSession.value.connect(token)
-    const publisher = openviduInstance.value.initPublisher(
-      container,
-      buildPublisherOptions(),
-    )
-    openviduPublisher.value = publisher
-    attachPublisherHandlers(publisher, broadcastId)
-    await openviduSession.value.publish(publisher)
-    openviduConnected.value = true
-    applyPublisherVolume()
-    const tracksReady = await waitForPublisherTracks(publisher)
-    if (tracksReady) {
-      await requestStartRecording(broadcastId)
-    } else {
-      recordingStartRequested.value = false
+  publisherConnectPromise = (async () => {
+    const container = await waitForPublisherContainer()
+    if (!container) {
+      scheduleStartRetry(broadcastId, '방송 화면 준비 중입니다. 잠시 후 다시 시도합니다.')
+      return false
     }
-    startRetryCount.value = 0
-    if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
-    startRetryTimer.value = null
-    return true
-  } catch {
-    disconnectOpenVidu()
-    if (['READY', 'ON_AIR'].includes(lifecycleStatus.value)) {
-      scheduleStartRetry(broadcastId, '방송 송출 연결에 실패했습니다. 다시 연결을 시도합니다.')
+    publisherConnectInFlight.value = true
+    try {
+      disconnectOpenVidu()
+      openviduInstance.value = new OpenVidu()
+      openviduSession.value = openviduInstance.value.initSession()
+      await openviduSession.value.connect(token)
+      const publisher = openviduInstance.value.initPublisher(
+        container,
+        buildPublisherOptions(),
+      )
+      openviduPublisher.value = publisher
+      attachPublisherHandlers(publisher, broadcastId)
+      await openviduSession.value.publish(publisher)
+      openviduConnected.value = true
+      applyPublisherVolume()
+      const tracksReady = await waitForPublisherTracks(publisher)
+      if (tracksReady) {
+        await requestStartRecording(broadcastId)
+      } else {
+        recordingStartRequested.value = false
+      }
+      startRetryCount.value = 0
+      if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+      startRetryTimer.value = null
+      return true
+    } catch {
+      disconnectOpenVidu()
+      if (['READY', 'ON_AIR'].includes(lifecycleStatus.value)) {
+        scheduleStartRetry(broadcastId, '방송 송출 연결에 실패했습니다. 다시 연결을 시도합니다.')
+      }
+      return false
+    } finally {
+      publisherConnectInFlight.value = false
+      publisherConnectPromise = null
     }
-    return false
-  }
+  })()
+  return await publisherConnectPromise
 }
 
 const requestPublisherToken = async (broadcastId: number) => {
-  if (publisherTokenInFlight.value) return null
-  publisherTokenInFlight.value = true
-  try {
-    const token = await startSellerBroadcast(broadcastId)
-    publisherToken.value = token
-    return token
-  } catch {
-    publisherToken.value = null
-    return null
-  } finally {
-    publisherTokenInFlight.value = false
+  if (publisherToken.value) return publisherToken.value
+  if (publisherTokenPromise) {
+    return await publisherTokenPromise
   }
+  publisherTokenPromise = (async () => {
+    publisherTokenInFlight.value = true
+    try {
+      const token = await startSellerBroadcast(broadcastId)
+      publisherToken.value = token
+      return token
+    } catch {
+      publisherToken.value = null
+      return null
+    } finally {
+      publisherTokenInFlight.value = false
+      publisherTokenPromise = null
+    }
+  })()
+  return await publisherTokenPromise
 }
 
 const ensurePublisherConnected = async (broadcastId: number) => {
   if (openviduConnected.value) return
+  if (publisherConnectInFlight.value) return
   await ensureLocalMediaAccess()
   await loadMediaDevices()
   if (!publisherToken.value) {
@@ -979,6 +1010,8 @@ const resetRealtimeState = () => {
   clearEndRequestTimer()
   clearPublisherRestartTimer()
   disconnectOpenVidu()
+  publisherConnectInFlight.value = false
+  publisherToken.value = null
   startRequested.value = false
   recordingStartRequested.value = false
   endRequested.value = false
@@ -989,8 +1022,11 @@ const requestStartBroadcast = async (broadcastId: number) => {
   startRequested.value = true
   try {
     await ensureLocalMediaAccess()
-    const token = await startSellerBroadcast(broadcastId)
-    publisherToken.value = token
+    const token = await requestPublisherToken(broadcastId)
+    if (!token) {
+      startRequested.value = false
+      return
+    }
     const connected = await connectPublisher(broadcastId, token)
     if (!connected) {
       startRequested.value = false
@@ -1076,6 +1112,15 @@ const handleBeforeUnload = (event: BeforeUnloadEvent) => {
 const scheduleAutoStart = (broadcastId: number, scheduledAtMs: number | null, status: BroadcastStatus) => {
   clearStartTimer()
   if (!scheduledAtMs || status !== 'READY') return
+  if (
+    startRequested.value ||
+    publisherToken.value ||
+    publisherTokenInFlight.value ||
+    publisherConnectInFlight.value ||
+    openviduConnected.value
+  ) {
+    return
+  }
   const delay = Math.max(0, scheduledAtMs - Date.now())
   if (delay === 0) {
     void requestStartBroadcast(broadcastId)
@@ -1168,7 +1213,7 @@ const hydrateStream = async () => {
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
     scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
-    streamStatus.value = resolveDetailStatus(detail)
+    streamStatus.value = resolveSellerStreamStatus(detail)
 
     const products = (detail.products ?? []).map((product) => mapStreamProduct(product))
 
@@ -1274,7 +1319,7 @@ const refreshInfo = async (broadcastId: number) => {
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
     scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
-    streamStatus.value = resolveDetailStatus(detail)
+    streamStatus.value = resolveSellerStreamStatus(detail)
     if (stream.value) {
       stream.value = {
         ...stream.value,

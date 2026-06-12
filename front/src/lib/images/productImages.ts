@@ -2,7 +2,7 @@ export const PLACEHOLDER_IMAGE = '/placeholder-product.jpg'
 
 export const getStorageBaseUrl = () => {
   const base = import.meta.env.VITE_STORAGE_BASE_URL ??
-    'https://kr.object.ncloudstorage.com/live-commerce-bucket/'
+    'http://127.0.0.1:9000/live-commerce-bucket/'
   return base.endsWith('/') ? base : `${base}/`
 }
 
