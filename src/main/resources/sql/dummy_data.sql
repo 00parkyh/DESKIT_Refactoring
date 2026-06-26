@@ -676,19 +676,19 @@ VALUES (5, 1500, 220, DATE_ADD(NOW(), INTERVAL -5 DAY), 300, 120, 2400000, 460, 
 -- 21) live_chat (샘플: 8개)
 -- member_email만 저장
 -- -------------------------
-INSERT INTO live_chat (broadcast_id, member_email, msg_type, content, raw_content, send_nick, is_world, is_hidden,
+INSERT INTO live_chat (broadcast_id, member_email, msg_type, content, raw_content, send_nick, is_world,
                        vod_play_time)
-VALUES (6, 'yheon.park@member.test', 'ENTER', '입장했습니다', '입장했습니다', '박용헌', FALSE, FALSE, 5),
-       (6, 'doyun.kim@member.test', 'TALK', '오늘 특가 뭐예요?', '오늘 특가 뭐예요?', '김도윤', FALSE, FALSE, 18),
-       (6, 'jangwoo.joo@member.test', 'TALK', '세팅 팁 감사합니다', '세팅 팁 감사합니다', '주장우', FALSE, FALSE, 35),
-       (6, 'hawon.go@member.test', 'TALK', '재고 얼마나 남았나요?', '재고 얼마나 남았나요?', '고하원', FALSE, FALSE, 50);
+VALUES (6, 'yheon.park@member.test', 'ENTER', '입장했습니다', '입장했습니다', '박용헌', FALSE, 5),
+       (6, 'doyun.kim@member.test', 'TALK', '오늘 특가 뭐예요?', '오늘 특가 뭐예요?', '김도윤', FALSE, 18),
+       (6, 'jangwoo.joo@member.test', 'TALK', '세팅 팁 감사합니다', '세팅 팁 감사합니다', '주장우', FALSE, 35),
+       (6, 'hawon.go@member.test', 'TALK', '재고 얼마나 남았나요?', '재고 얼마나 남았나요?', '고하원', FALSE, 50);
 
-INSERT INTO live_chat (broadcast_id, member_email, msg_type, content, raw_content, send_nick, is_world, is_hidden,
+INSERT INTO live_chat (broadcast_id, member_email, msg_type, content, raw_content, send_nick, is_world,
                        vod_play_time)
-VALUES (2, 'doyun.kim@member.test', 'TALK', '키보드 추천 조합 있나요?', '키보드 추천 조합 있나요?', '김도윤', FALSE, FALSE, 120),
-       (1, 'yheon.park@member.test', 'NOTICE', '공지 확인 부탁드립니다', '공지 확인 부탁드립니다', '박용헌', TRUE, FALSE, 60),
-       (5, 'jangwoo.joo@member.test', 'TALK', '스피커 스탠드 꼭 필요해요?', '스피커 스탠드 꼭 필요해요?', '주장우', FALSE, FALSE, 240),
-       (7, 'hawon.go@member.test', 'TALK', '오디오인터페이스 연결이 궁금해요', '오디오인터페이스 연결이 궁금해요', '고하원', FALSE, FALSE, 180);
+VALUES (2, 'doyun.kim@member.test', 'TALK', '키보드 추천 조합 있나요?', '키보드 추천 조합 있나요?', '김도윤', FALSE, 120),
+       (1, 'yheon.park@member.test', 'NOTICE', '공지 확인 부탁드립니다', '공지 확인 부탁드립니다', '박용헌', TRUE, 60),
+       (5, 'jangwoo.joo@member.test', 'TALK', '스피커 스탠드 꼭 필요해요?', '스피커 스탠드 꼭 필요해요?', '주장우', FALSE, 240),
+       (7, 'hawon.go@member.test', 'TALK', '오디오인터페이스 연결이 궁금해요', '오디오인터페이스 연결이 궁금해요', '고하원', FALSE, 180);
 
 -- -------------------------
 -- 22) sanction (샘플 2개)
